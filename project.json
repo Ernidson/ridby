@@ -1,0 +1,238 @@
+{
+  "format": "rigby-snapshot/1",
+  "name": "NILA meets Rigbytron",
+  "bones": [
+    {
+      "name": "root",
+      "length": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "scale_x": 1,
+      "scale_y": 1
+    },
+    {
+      "name": "camera",
+      "parent": 0,
+      "length": 120,
+      "x": 0,
+      "y": 600,
+      "rotation": 0,
+      "scale_x": 1,
+      "scale_y": 1,
+      "color": "ffd84dff"
+    },
+    {
+      "name": "background",
+      "parent": 0,
+      "length": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "scale_x": 1,
+      "scale_y": 1
+    },
+    {
+      "name": "barra_fixa",
+      "parent": 0,
+      "length": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "scale_x": 1,
+      "scale_y": 1
+    },
+    {
+      "name": "treinador",
+      "parent": 0,
+      "length": 0,
+      "x": 0,
+      "y": 698,
+      "rotation": 0,
+      "scale_x": 0.3,
+      "scale_y": 0.3,
+      "color": "ff8cd9ff",
+      "scaleX": 1,
+      "scaleY": 1
+    }
+  ],
+  "slots": [
+    {
+      "name": "fundo_floresta",
+      "bone": "background",
+      "attachments": [
+        {
+          "name": "background",
+          "x": 0,
+          "y": 730,
+          "rotation": 0,
+          "scale_x": 1,
+          "scale_y": 1,
+          "width": 4200,
+          "height": 1700
+        }
+      ],
+      "attachment": "fundo_floresta_01",
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "barra_fixa",
+      "bone": "barra_fixa",
+      "attachments": [
+        {
+          "name": "mountains",
+          "x": 0,
+          "y": 380,
+          "rotation": 0,
+          "scale_x": 1,
+          "scale_y": 1,
+          "width": 4200,
+          "height": 760
+        }
+      ],
+      "attachment": "Barra_Fixa_01",
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "treinador",
+      "bone": "treinador",
+      "attachments": [],
+      "color": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "attachment": null
+    }
+  ],
+  "animations": {
+    "barra_fixa": {
+      "bones": {}
+    }
+  },
+  "images": [
+    {
+      "name": "background",
+      "width": 4200,
+      "height": 1700
+    },
+    {
+      "name": "mountains",
+      "width": 4200,
+      "height": 760
+    },
+    {
+      "name": "hills",
+      "width": 4200,
+      "height": 520
+    },
+    {
+      "name": "ground",
+      "width": 4200,
+      "height": 260
+    }
+  ],
+  "settings": {
+    "fps": 30,
+    "width": 1920,
+    "height": 1080,
+    "background": null,
+    "frame": {
+      "x": 0,
+      "y": 600,
+      "scale": 1.2,
+      "camera": true
+    }
+  },
+  "workspace": "film",
+  "audio": [
+    {
+      "sound": "rigbytron_hi.wav",
+      "animation": "meet",
+      "offset": 4.95,
+      "volume": 1
+    }
+  ],
+  "scene": {
+    "actors": [
+      {
+        "name": "treinador",
+        "bone": "treinador",
+        "slot": "treinador",
+        "source": "NOVO_TREINADOR_COSTAS.rigby",
+        "flip": false,
+        "skin": null,
+        "clips": {
+          "barra_fixa": [
+            {
+              "animation": "barra_fixa_5s",
+              "start": 0,
+              "in": 0,
+              "out": 5,
+              "speed": 1,
+              "loops": 1,
+              "blend": 0
+            }
+          ]
+        }
+      }
+    ],
+    "depth": {
+      "fundo_floresta": 4000,
+      "barra_fixa": 0,
+      "treinador": -1000
+    }
+  },
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "fundo_floresta": {
+          "fundo_floresta_01": {
+            "x": -836,
+            "y": 345,
+            "width": 1672,
+            "height": 941
+          }
+        },
+        "barra_fixa": {
+          "Barra_Fixa_01": {
+            "x": -836,
+            "y": 345,
+            "width": 1672,
+            "height": 941
+          }
+        },
+        "treinador": {}
+      }
+    }
+  ],
+  "film": {
+    "output": {
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "background": "transparent",
+      "framing": "fixed",
+      "frame": {
+        "x": 0,
+        "y": 690,
+        "scale": 1.33
+      }
+    },
+    "poses": [],
+    "faceControls": [],
+    "audio": []
+  }
+}

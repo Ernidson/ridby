@@ -1,0 +1,23 @@
+-- SPDX-License-Identifier: MIT OR Apache-2.0
+-- Demo: drives Rigbytron, a Rigby2D model component (main/rigbytron/rigbytron.rigbymodel, which
+-- the Defold editor plays live): slashes on Space (or a click) and reports animation events.
+
+local MODEL = "rigbytron#rigbymodel"
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	rigby.on_event(MODEL, function(self, event)
+		if event.kind == "event" then
+			print(("event %s on track %d"):format(event.name, event.track))
+		elseif event.kind == "complete" then
+			print(("%s completed on track %d"):format(event.animation, event.track))
+		end
+	end)
+end
+
+function on_input(self, action_id, action)
+	if (action_id == hash("key_space") or action_id == hash("touch")) and action.pressed then
+		rigby.play(MODEL, "release", { loop = false, mix = 0.1 })
+		rigby.queue(MODEL, "hold", { loop = true, mix = 0.3 })
+	end
+end

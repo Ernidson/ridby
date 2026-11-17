@@ -1,0 +1,161 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.msi
+*.dmg
+
+# Cache directories
+viewer_cache/
+**/viewer_cache/
+.cache/
+*.cache
+
+# Temporary files
+*.swp
+*.swo
+*.tmp
+*.temp
+temp_*/
+_temp_*/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Test artifacts
+test/ui/shots/
+test/fixtures/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Project specific - ignore all binary/large files in projetos
+projetos/*.rigby
+projetos/*.rigby2d
+projetos/*.zip
+projetos/*.json
+projetos/*.atlas
+projetos/_backups/
+projetos/_backups/**/*
+
+# Reference/assets directories with large files
+_referencias/
+_referencias/**/*
+temp_*/
+temp_*/**/*
+_temp_*/
+_temp_*/**/*
+viewer_cache/
+viewer_cache/**/*
+
+# Rigby2D specific
+rigby2d/dist/
+rigby2d/build/
+rigby2d/node_modules/
+rigby2d/src-tauri/target/
+rigby2d/src-tauri/gen/schemas/
+# Large binary files in rigby2d (including versioned names like .so.1, .dylib.1.30.0, etc.)
+rigby2d/*.so*
+rigby2d/*.dylib*
+rigby2d/*.dll*
+rigby2d/*.wasm*
+rigby2d/*.node*
+rigby2d/**/*.so*
+rigby2d/**/*.dylib*
+rigby2d/**/*.dll*
+rigby2d/**/*.wasm*
+rigby2d/**/*.node*
+
+# Debug/test scripts
+*debug*.py
+*check*.py
+*fix*.py
+*rebuild*.py
+*create*.py
+*diag*.py
+*final*.py
+INTEGRATION_STATUS.md
+
+# Large assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.psd
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# Explicitly allow only specific important files at root
+!AGENTS.md
+!LEIA-ME.md
+!*.md
+!package.json
+!package-lock.json
+!tsconfig.json
+!*.js
+!*.mjs
+!*.ts
+!*.html
+!*.css
+!*.yaml
+!*.yml
+!*.toml
+!*.cfg
+!*.ini
+!*.gitignore
+!LICENSE
+!README*
+!CHANGELOG*
+!CONTRIBUTING*
+# Allow JSON only in specific directories (not in projetos/)
+!rigby2d/**/*.json
+!viewer/**/*.json

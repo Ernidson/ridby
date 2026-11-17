@@ -1,0 +1,77 @@
+# Builds the project website and the browser editor, and publishes them on GitHub Pages:
+# https://rigby2d.com/ (landing page, devlog, docs) and /editor/ (the editor).
+#
+# The website (landing page, devlog) comes from develop on every push. The browser editor and the
+# docs come from the latest published release, so work on develop reaches them on release day, not
+# before. After publishing a release, run
+# this workflow on develop (gh workflow run pages.yml --ref develop) to put the new editor live; a
+# run can also build the editor from another tag (editor_ref). Pages deploys only from develop.
+name: Website
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      editor_ref:
+        description: Tag to build the browser editor from (empty = the latest published release)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push replaces a queued one but never cancels a running deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Website
+        run: node runtimes/phaser/build.mjs && npx vite build --config site/vite.config.js
+      - name: Browser editor and docs (latest release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EDITOR_REF: ${{ inputs.editor_ref }}
+        run: |
+          tag="$EDITOR_REF"
+          if [ -z "$tag" ]; then tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
+          echo "Browser editor from $tag"
+          git fetch --depth 1 origin "refs/tags/$tag:refs/tags/$tag"
+          git worktree add --detach "$RUNNER_TEMP/editor" "$tag"
+          cd "$RUNNER_TEMP/editor"
+          npm ci
+          npx vite build --base=/editor/ --outDir "$GITHUB_WORKSPACE/_site/editor" --emptyOutDir
+          # The docs as released (pages, screenshots, generated shortcut and tool tables), laid over
+          # develop's so files only develop has (devlog images under docs/images) stay.
+          node runtimes/phaser/build.mjs
+          npx vite build --config site/vite.config.js
+          cp -r _site/docs/. "$GITHUB_WORKSPACE/_site/docs/"
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

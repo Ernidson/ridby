@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Rigby2D — Viewer do estúdio</title>
+<script type="importmap">{"imports":{"pixi.js":"/vendor/pixi.min.mjs"}}</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#1b1b1e;font-family:system-ui,sans-serif;color:#eee}
+  #barra{position:fixed;top:0;left:0;right:0;z-index:2;display:flex;gap:10px;align-items:center;
+    padding:8px 12px;background:#000000a0;backdrop-filter:blur(4px);font-size:14px}
+  #barra select,#barra button{font:inherit;background:#2a2a30;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 8px}
+  #estado{opacity:.75;font-size:13px}
+  #game{position:fixed;inset:0}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<div id="barra">
+  Projeto: <select id="projeto"></select>
+  Animação: <select id="anim"></select>
+  <label><input type="checkbox" id="loop" checked> loop</label>
+  <button id="pausa">⏸</button>
+  <button id="manual">↻ recarregar agora</button>
+  <button id="cena">🌲 Cena Floresta</button>
+  <span id="estado"></span>
+</div>
+<div id="game"></div>
+<script type="module">
+console.log('Viewer module starting...');
+window.addEventListener('unhandledrejection', e => console.error('UNHANDLED REJECTION:', e.reason));
+window.addEventListener('error', e => console.error('GLOBAL ERROR:', e.error || e.message));
+import * as PIXI from "pixi.js";
+console.log('PIXI loaded:', PIXI.VERSION);
+import { rigbyPixi } from "/repo/runtimes/pixi/rigby-pixi.js";
+console.log('rigbyPixi loaded');
+const { loadRigby, RigbySkeleton } = rigbyPixi(PIXI);
+console.log('loadRigby, RigbySkeleton ready');
+
+const app = new PIXI.Application();
+await app.init({ resizeTo: window, background: "#1b1b1e", antialias: true });
+document.getElementById("game").appendChild(app.canvas);
+
+const $proj = document.getElementById("projeto"), $anim = document.getElementById("anim");
+const $loop = document.getElementById("loop"), $estado = document.getElementById("estado");
+let skel = null, atual = { file: null, mtime: 0, anim: null };
+let aRecarregar = false;
+
+const estado = (t) => ($estado.textContent = t);
+
+async function carregar(file, anim) {
+  console.log('carregar called:', file, anim);
+  const stem = file.replace(/\.rigby$/i, "");
+  const r = await (await fetch("/api/sync?file=" + encodeURIComponent(file))).json();
+  console.log('sync response:', r);
+  if (r.erro) { estado("erro na sincronização: " + r.erro); return; }
+  if (!anim || !r.animacoes.some(a => a.name === anim)) {
+    anim = r.animacoes.some(a => a.name === "levantar_braco") ? "levantar_braco" : r.animacoes[0]?.name;
+  }
+  $anim.replaceChildren(...r.animacoes.map(a => new Option(`${a.name} (${a.duration.toFixed(2)}s)`, a.name)));
+  $anim.value = anim;
+  // ?v=mtime evita a cache do loadRigby (a mesma URL devolveria dados antigos)
+  const v = `?v=${r.mtime ?? atual.mtime ?? Date.now()}`;
+  console.log('About to call loadRigby...');
+let data;
+try {
+  data = await loadRigby(`/cache/${stem}/${stem}.json${v}`, `/cache/${stem}/${stem}.atlas${v}`);
+  console.log('loadRigby data:', data);
+  console.log('loadRigby data.skeleton:', data?.skeleton);
+  console.log('loadRigby data.atlas:', data?.atlas);
+  console.log('loadRigby data.pages:', data?.pages?.size);
+} catch (e) {
+  console.error('loadRigby ERROR:', e);
+  estado('erro no loadRigby: ' + e.message);
+  return;
+}
+  if (skel) { app.stage.removeChild(skel); skel.destroy({ children: true }); }
+  skel = new RigbySkeleton(data, { animation: anim, loop: $loop.checked });
+  console.log('RigbySkeleton created:', skel);
+  console.log('meshCount:', skel.meshCount, 'pieces:', skel._pieces.length);
+  console.log('slots:', skel.skeleton.slots.length);
+  console.log('slot attachments at time 0:', skel.skeleton.slots.map((s, i) => ({ name: s.name, attachment: skel.pose.slotAttachment(skel.skeleton, i)?.name })));
+  console.log('data.lookup test:', data.lookup('head'));
+  app.stage.addChild(skel);
+  // Force a render so geometry bounds are computed (MeshGeometry.boundsDirty needs a render pass)
+  app.render();
+  ajustar();
+  console.log('Added to stage, stage children:', app.stage.children.length);
+  console.log('skel bounds:', JSON.stringify(skel.getLocalBounds ? skel.getLocalBounds() : 'no getLocalBounds'));
+  atual = { file, mtime: r.mtime ?? atual.mtime, anim };
+  const s = await (await fetch("/api/stat?file=" + encodeURIComponent(file))).json();
+  atual.mtime = s.mtimeMs;
+  estado(`ok — ${r.imagens} imagens, ${r.animacoes.length} animações (atualizado ${new Date().toLocaleTimeString()})`);
+}
+
+function ajustar() {
+  if (!skel) return;
+  console.log('ajustar: skel._view exists?', !!skel._view);
+  if (!skel._view) return;
+  
+  // Compute bounds directly from mesh geometry positions (avoids container updateTransform issues)
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let hasVertices = false;
+  skel._view.children.forEach(mesh => {
+    if (!mesh.visible || !mesh.geometry) return;
+    const posBuf = mesh.geometry.getBuffer('aPosition');
+    if (posBuf && posBuf.data) {
+      const data = posBuf.data;
+      for (let i = 0; i < data.length; i += 2) {
+        const x = data[i];
+        const y = data[i + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        hasVertices = true;
+      }
+    }
+  });
+  
+  if (!hasVertices) {
+    console.log('ajustar: no vertices found');
+    return;
+  }
+  
+  const b = { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  console.log('ajustar bounds (from mesh positions):', b);
+  const h = Math.max(1, b.height);
+  const newScale = (app.screen.height * 0.78) / h;
+  skel.scale.set(newScale);
+  // Position skeleton so its bounds are centered in the canvas.
+  // The _view container has scale.y = -1 (Y-up to Y-down flip).
+  // World position of bounds after scaling:
+  //   worldMinY = skel.position.y + b.minY * newScale * (-1)
+  //   worldMaxY = skel.position.y + b.maxY * newScale * (-1)
+  // We want the bounds to be centered vertically in the canvas.
+  const boundsCenterY = (b.minY + b.maxY) / 2;
+  const targetCenterY = app.screen.height / 2;
+  // worldCenterY = skel.position.y + boundsCenterY * newScale * (-1)
+  // => skel.position.y = targetCenterY - boundsCenterY * newScale * (-1)
+  skel.scale.set(newScale);
+  skel.position.set(
+    app.screen.width / 2,
+    targetCenterY - boundsCenterY * newScale * -1
+  );
+  if (skel._view.children[0]) {
+    const m = skel._view.children[0];
+    const geom = m.geometry;
+    const posBuf = geom?.getBuffer('aPosition');
+    const uvBuf = geom?.getBuffer('aUV');
+    const idxBuf = geom?.getIndex();
+    console.log('first mesh:', JSON.stringify({ 
+      visible: m.visible, 
+      alpha: m.alpha, 
+      tint: m.tint, 
+      texture: m.texture ? 'yes' : 'no', 
+      geometry: m.geometry ? 'yes' : 'no',
+      renderable: m.renderable,
+      worldAlpha: m.worldAlpha,
+      parent: m.parent ? 'yes' : 'no',
+      worldTransform: m.worldTransform ? { a: m.worldTransform.a.toFixed(4), b: m.worldTransform.b.toFixed(4), c: m.worldTransform.c.toFixed(4), d: m.worldTransform.d.toFixed(4), tx: m.worldTransform.tx.toFixed(2), ty: m.worldTransform.ty.toFixed(2) } : 'no',
+      geometryDetails: m.geometry ? {
+        attributes: Object.keys(m.geometry.attributes || {}),
+        indexBuffer: m.geometry.indexBuffer ? 'yes' : 'no',
+        vertexCount: posBuf?.data?.length || 0,
+        indexCount: idxBuf?.data?.length || 0,
+        posBufferData: posBuf?.data ? Array.from(posBuf.data.slice(0, 20)) : null,
+        uvBufferData: uvBuf?.data ? Array.from(uvBuf.data.slice(0, 20)) : null
+      } : 'no geometry',
+      shader: m.shader ? 'yes' : 'no',
+      material: m.material ? 'yes' : 'no',
+      batchMode: m.geometry.batchMode || 'none',
+      blendMode: m.blendMode,
+      roundPixels: m.roundPixels
+    }, null, 2));
+    
+    // Check ALL meshes
+    console.log('ALL _view children:');
+    skel._view.children.forEach((c, i) => {
+      const geom = c.geometry;
+      console.log(`  mesh[${i}]:`, {
+        visible: c.visible,
+        alpha: c.alpha,
+        worldAlpha: c.worldAlpha,
+        renderable: c.renderable,
+        batchMode: c.geometry?.batchMode,
+        attributes: geom?.attributes ? Object.keys(geom.attributes) : 'no geom',
+        texture: c.texture ? 'yes' : 'no',
+        shader: c.shader ? 'yes' : 'no',
+        worldTransform: c.worldTransform ? { a: c.worldTransform.a.toFixed(4), b: c.worldTransform.b.toFixed(4), c: c.worldTransform.c.toFixed(4), d: c.worldTransform.d.toFixed(4), tx: c.worldTransform.tx.toFixed(2), ty: c.worldTransform.ty.toFixed(2) } : 'no'
+      });
+    });
+  }
+  // Check if renderer is running
+  console.log('app.ticker:', app.ticker ? 'exists' : 'no', 'autoUpdate:', skel.autoUpdate, 'PIXI.Ticker.shared:', PIXI.Ticker.shared ? 'exists' : 'no');
+  // Force a render
+  app.render();
+  console.log('after render, canvas check:', document.querySelector('canvas').width, document.querySelector('canvas').height);
+  
+  // Check stage children
+  console.log('Stage children:', app.stage.children.length);
+  app.stage.children.forEach((c, i) => {
+    console.log(`  stage[${i}]:`, c.label || c.constructor.name, 'children:', c.children?.length);
+  });
+  
+  // Check _view container
+  console.log('_view:', skel._view ? {
+    label: skel._view.label,
+    children: skel._view.children.length,
+    visible: skel._view.visible,
+    worldAlpha: skel._view.worldAlpha,
+    worldTransform: skel._view.worldTransform ? { a: skel._view.worldTransform.a.toFixed(4), b: skel._view.worldTransform.b.toFixed(4), c: skel._view.worldTransform.c.toFixed(4), d: skel._view.worldTransform.d.toFixed(4), tx: skel._view.worldTransform.tx.toFixed(2), ty: skel._view.worldTransform.ty.toFixed(2) } : 'no'
+  } : 'none');
+  
+  // Force render just the skeleton
+  const canvas = document.querySelector('canvas');
+  const gl = canvas.getContext('webgl2');
+  app.renderer.render(skel);
+  const pixels = new Uint8Array(4 * canvas.width * canvas.height);
+  gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  let nonBg = 0;
+  const bgR = 27, bgG = 27, bgB = 30;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] !== bgR || pixels[i+1] !== bgG || pixels[i+2] !== bgB) nonBg++;
+  }
+  console.log('non-background pixels after direct skel render:', nonBg);
+  
+  // Keep RigbySkeleton visible - mesh rendering now works!
+}
+
+// Direct load function for cache-based scenes
+async function carregarCena(stem, anim) {
+  console.log('carregarCena called:', stem, anim);
+  const v = `?v=${Date.now()}`;
+  let data;
+  let sceneData = null;
+  try {
+    console.log('About to loadRigby:', `/cache/${stem}/${stem}.json${v}`, `/cache/${stem}/${stem}.atlas${v}`);
+    data = await loadRigby(`/cache/${stem}/${stem}.json${v}`, `/cache/${stem}/${stem}.atlas${v}`);
+    console.log('loadRigby data:', data);
+  } catch (e) {
+    console.error('loadRigby ERROR:', e);
+    estado('erro no loadRigby: ' + e.message);
+    return;
+  }
+  
+  // Fetch scene data (actors, depth) from /api/sync
+  try {
+    console.log('Fetching /api/sync for:', stem + '.rigby');
+    const rigbyResp = await fetch(`/api/sync?file=${encodeURIComponent(stem + '.rigby')}`);
+    console.log('sync response status:', rigbyResp.status);
+    const rigbyResult = await rigbyResp.json();
+    console.log('sync response:', rigbyResult);
+    if (rigbyResult.ok && rigbyResult.scene) {
+      sceneData = rigbyResult.scene;
+      console.log('Scene data from /api/sync:', sceneData);
+    }
+  } catch (e) {
+    console.warn('Could not fetch scene data from /api/sync:', e);
+  }
+  
+  if (skel) { app.stage.removeChild(skel); skel.destroy({ children: true }); }
+  skel = new RigbySkeleton(data, { animation: anim, loop: $loop.checked });
+  console.log('RigbySkeleton created:', skel);
+  console.log('meshCount:', skel.meshCount, 'pieces:', skel._pieces.length);
+  console.log('slots:', skel.skeleton.slots.length);
+  console.log('slot attachments at time 0:', skel.skeleton.slots.map((s, i) => ({ name: s.name, attachment: skel.pose.slotAttachment(skel.skeleton, i)?.name })));
+  app.stage.addChild(skel);
+  
+  // Load actors defined in the scene
+  if (sceneData) {
+    await carregarActors({ scene: sceneData }, anim, v);
+  }
+  
+  app.render();
+  ajustar();
+  console.log('Added to stage, stage children:', app.stage.children.length);
+  atual = { file: stem + '.json', mtime: Date.now(), anim };
+  estado(`ok — cena ${stem} carregada`);
+}
+
+// Load actors from scene data
+async function carregarActors(sceneData, anim, v) {
+  const scene = sceneData.scene;
+  if (!scene || !scene.actors || !scene.actors.length) {
+    console.log('No actors in scene');
+    return;
+  }
+  
+  console.log('Loading actors:', scene.actors);
+  
+  // Update skeleton to compute world transforms - call update() on the RigbySkeleton
+  skel.update(0);
+  
+  for (const actorDef of scene.actors) {
+    const { name, bone: boneIndex, source, flip, skin, clips } = actorDef;
+    console.log(`Loading actor ${name} from ${source} at bone ${boneIndex}`);
+    
+    // Get the actor bone's local position (in scene coordinates)
+    const actorBone = skel.skeleton.bones[boneIndex];
+    if (!actorBone) {
+      console.error(`Actor bone index ${boneIndex} not found`);
+      continue;
+    }
+    
+    // Get local position from setup pose (where the bone is in the scene)
+    const localX = actorBone.setup?.x ?? actorBone.x ?? actorBone.localX ?? actorBone.position?.x ?? 0;
+    const localY = actorBone.setup?.y ?? actorBone.y ?? actorBone.localY ?? actorBone.position?.y ?? 0;
+    console.log(`Actor bone ${name} local position (from setup): (${localX.toFixed(2)}, ${localY.toFixed(2)})`);
+    
+    // Load actor's rigby file
+    const actorStem = source.replace(/\.rigby$/i, "");
+    try {
+      const actorData = await loadRigby(`/cache/${actorStem}/${actorStem}.json${v}`, `/cache/${actorStem}/${actorStem}.atlas${v}`);
+      console.log(`Actor ${name} data loaded`);
+      
+      // Determine animation for actor
+      let actorAnim = anim;
+      if (clips && clips[anim]) {
+        actorAnim = clips[anim][0]?.animation || anim;
+      }
+      console.log(`Actor ${name} playing animation: ${actorAnim}`);
+      
+      // Create actor skeleton
+      const actorSkel = new RigbySkeleton(actorData, { animation: actorAnim, loop: $loop.checked });
+      console.log(`Actor ${name} RigbySkeleton created, meshCount: ${actorSkel.meshCount}`);
+      
+      // Apply flip if needed
+      if (flip) {
+        actorSkel.scale.x = -1;
+      }
+      
+      // Apply skin if specified
+      if (skin && actorSkel.skeleton.skins.find(s => s.name === skin)) {
+        actorSkel.skeleton.setSkinByName(skin);
+      }
+      
+      // Position actor at the actor bone's LOCAL position (relative to scene root)
+      // Since we add it as child of skel (which is at scene root), we use local coordinates
+      actorSkel.position.set(localX, localY);
+      
+      // Add as child of main skeleton so it follows scene transform
+      skel.addChild(actorSkel);
+      console.log(`Actor ${name} added to scene at local (${localX.toFixed(2)}, ${localY.toFixed(2)})`);
+      
+    } catch (e) {
+      console.error(`Failed to load actor ${name} from ${source}:`, e);
+    }
+  }
+}
+
+$proj.onchange = () => carregar($proj.value, null);
+$anim.onchange = () => { if (skel) { atual.anim = $anim.value; skel.play($anim.value, $loop.checked, 0.2); } };
+$loop.onchange = () => { if (skel) skel.play(atual.anim, $loop.checked); };
+document.getElementById("pausa").onclick = (e) => {
+  if (!skel) return;
+  skel.autoUpdate = !skel.autoUpdate;
+  e.target.textContent = skel.autoUpdate ? "⏸" : "▶";
+};
+document.getElementById("manual").onclick = () => carregar(atual.file, atual.anim);
+document.getElementById("cena").onclick = () => carregarCena("EP01_BARRA_FIXA_V2", "barra_fixa");
+window.addEventListener("resize", ajustar);
+
+// Expose for manual testing
+window.carregarCena = carregarCena;
+
+// lista de projetos
+console.log('Fetching project list...');
+let lista = [];
+try {
+  console.log('About to fetch /api/list');
+  const res = await fetch("/api/list");
+  console.log('api/list response:', res.status, res.statusText);
+  const data = await res.json();
+  console.log('api/list data:', data);
+  lista = data.projetos || [];
+  console.log('Got lista:', lista);
+} catch (e) {
+  console.error('Failed to fetch project list:', e);
+}
+console.log('About to populate select with:', lista.length, 'items');
+$proj.replaceChildren(...lista.map(n => new Option(n, n)));
+console.log('Select populated, options:', $proj.options.length);
+console.log('About to load default scene...');
+// Carrega a cena EP01_BARRA_FIXA por defeito
+try {
+  await carregarCena("EP01_BARRA_FIXA_V2", "barra_fixa");
+  console.log('Default scene loaded');
+} catch (e) {
+  console.error('Failed to load default scene:', e);
+}
+
+// Debug: log estado after 5 seconds
+setTimeout(() => {
+  console.log('After 5s - estado:', document.getElementById('estado').textContent);
+  console.log('After 5s - projeto options:', document.getElementById('projeto').options.length);
+}, 5000);
+
+// atualização automática: sondar o mtime do .rigby; se o MCP alterou, recarregar
+setInterval(async () => {
+  if (!atual.file || aRecarregar) return;
+  // Só auto-atualizar ficheiros .rigby (cenas JSON não têm mtime no servidor)
+  if (!atual.file.toLowerCase().endsWith('.rigby')) return;
+  try {
+    const s = await (await fetch("/api/stat?file=" + encodeURIComponent(atual.file))).json();
+    if (s.mtimeMs && s.mtimeMs !== atual.mtime) {
+      aRecarregar = true;
+      estado("ficheiro alterado pelo MCP — a recarregar…");
+      try { await carregar(atual.file, atual.anim); } finally { aRecarregar = false; }
+    }
+  } catch { /* rede a arrancar, ignorar */ }
+}, 700);
+</script>
+</body>
+</html>

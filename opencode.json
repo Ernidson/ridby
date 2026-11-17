@@ -1,0 +1,48 @@
+
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permissions": [
+    { "action": "execute", "resource": "*", "effect": "allow" },
+    { "action": "read", "resource": "*", "effect": "allow" },
+    { "action": "glob", "resource": "*", "effect": "allow" },
+    { "action": "grep", "resource": "*", "effect": "allow" },
+    { "action": "skill", "resource": "*", "effect": "allow" },
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "edit", "resource": "*", "effect": "allow" },
+    { "action": "external_directory", "resource": "*", "effect": "ask" },
+    { "action": "read", "resource": "*.env", "effect": "ask" },
+    { "action": "read", "resource": "*.env.*", "effect": "ask" },
+    { "action": "read", "resource": "*.env.example", "effect": "allow" },
+    { "action": "edit", "resource": "*.env", "effect": "ask" },
+    { "action": "edit", "resource": "*.env.*", "effect": "ask" },
+    { "action": "shell", "resource": "git push *", "effect": "ask" },
+    { "action": "shell", "resource": "git reset --hard *", "effect": "ask" },
+    { "action": "shell", "resource": "git clean *", "effect": "ask" },
+    { "action": "shell", "resource": "Remove-Item *", "effect": "ask" },
+    { "action": "shell", "resource": "rm *", "effect": "ask" },
+    { "action": "shell", "resource": "del *", "effect": "ask" },
+    { "action": "shell", "resource": "rmdir *", "effect": "ask" },
+    { "action": "shell", "resource": "rd *", "effect": "ask" },
+    { "action": "shell", "resource": "git push --force *", "effect": "deny" },
+    { "action": "shell", "resource": "git push -f *", "effect": "deny" }
+  ],
+  "compaction": {
+    "auto": true,
+    "keep": { "tokens": 10000 },
+    "buffer": "20%"
+  },
+  "mcp": {
+    "servers": {
+      "rigby2d": {
+        "type": "local",
+        "command": [
+          "node",
+          "D:\\IAGO PROG\\Projetos\\RIGBY2D_ESTUDIO\\rigby2d\\src\\mcp\\server.js",
+          "--root",
+          "D:\\IAGO PROG\\Projetos\\RIGBY2D_ESTUDIO\\projetos"
+        ],
+        "codemode": false
+      }
+    }
+  }
+}
