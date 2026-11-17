@@ -26,27 +26,30 @@ const WORK_JOINTS = [
 ];
 
 // Bone hierarchy matching Work joint structure
+// Root at origin. Spine goes from root to chest (shoulder level). Neck goes from chest to head.
+// Shoulders attach at chest level (ls/rs joints are at chest height).
 const BONE_HIERARCHY = [
-  { name: 'root', parent: null, joint: 'root' },
-  { name: 'spine', parent: 'root', joint: 'neck' },
-  { name: 'neck', parent: 'spine', joint: 'head' },
-  { name: 'head', parent: 'neck', joint: 'head' },
-  { name: 'shoulder_l', parent: 'spine', joint: 'ls' },
-  { name: 'elbow_l', parent: 'shoulder_l', joint: 'le' },
-  { name: 'wrist_l', parent: 'elbow_l', joint: 'lw' },
-  { name: 'hand_l', parent: 'wrist_l', joint: 'lw' },
-  { name: 'shoulder_r', parent: 'spine', joint: 'rs' },
-  { name: 'elbow_r', parent: 'shoulder_r', joint: 're' },
-  { name: 'wrist_r', parent: 'elbow_r', joint: 'rw' },
-  { name: 'hand_r', parent: 'wrist_r', joint: 'rw' },
-  { name: 'hip_l', parent: 'root', joint: 'lh' },
-  { name: 'knee_l', parent: 'hip_l', joint: 'lk' },
-  { name: 'ankle_l', parent: 'knee_l', joint: 'la' },
-  { name: 'foot_l', parent: 'ankle_l', joint: 'la' },
-  { name: 'hip_r', parent: 'root', joint: 'rh' },
-  { name: 'knee_r', parent: 'hip_r', joint: 'rk' },
-  { name: 'ankle_r', parent: 'knee_r', joint: 'ra' },
-  { name: 'foot_r', parent: 'ankle_r', joint: 'ra' },
+  { name: 'root', parent: null, joint: 'root', childJoint: 'chest' },
+  { name: 'spine', parent: 'root', joint: 'root', childJoint: 'chest' },
+  { name: 'chest', parent: 'spine', joint: 'chest', childJoint: 'neck', length: 0 },  // Zero-length at shoulder level
+  { name: 'neck', parent: 'chest', joint: 'chest', childJoint: 'head' },
+  { name: 'head', parent: 'neck', joint: 'head', childJoint: null },
+  { name: 'shoulder_l', parent: 'chest', joint: 'ls', childJoint: 'le' },
+  { name: 'elbow_l', parent: 'shoulder_l', joint: 'le', childJoint: 'lw' },
+  { name: 'wrist_l', parent: 'elbow_l', joint: 'lw', childJoint: null },
+  { name: 'hand_l', parent: 'wrist_l', joint: 'lw', childJoint: null },
+  { name: 'shoulder_r', parent: 'chest', joint: 'rs', childJoint: 're' },
+  { name: 'elbow_r', parent: 'shoulder_r', joint: 're', childJoint: 'rw' },
+  { name: 'wrist_r', parent: 'elbow_r', joint: 'rw', childJoint: null },
+  { name: 'hand_r', parent: 'wrist_r', joint: 'rw', childJoint: null },
+  { name: 'hip_l', parent: 'root', joint: 'lh', childJoint: 'lk' },
+  { name: 'knee_l', parent: 'hip_l', joint: 'lk', childJoint: 'la' },
+  { name: 'ankle_l', parent: 'knee_l', joint: 'la', childJoint: null },
+  { name: 'foot_l', parent: 'ankle_l', joint: 'la', childJoint: null },
+  { name: 'hip_r', parent: 'root', joint: 'rh', childJoint: 'rk' },
+  { name: 'knee_r', parent: 'hip_r', joint: 'rk', childJoint: 'ra' },
+  { name: 'ankle_r', parent: 'knee_r', joint: 'ra', childJoint: null },
+  { name: 'foot_r', parent: 'ankle_r', joint: 'ra', childJoint: null },
   // IK target bones for hand pinning (root-level, fixed in world space)
   { name: 'hand_target_l', parent: null, joint: 'lw', fixed: true, fixedWorldPosition: [-213, 693] },
   { name: 'hand_target_r', parent: null, joint: 'rw', fixed: true, fixedWorldPosition: [212, 693] },
@@ -99,6 +102,11 @@ function polygonBounds(poly) {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
 }
 
+// Calculate angle from point A to point B (in degrees, Rigby2D coords: X right, Y up)
+function angleTo(a, b) {
+  return Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+}
+
 async function loadWorkAutorig(buffer) {
   const entries = unzip(new Uint8Array(buffer));
   
@@ -148,9 +156,14 @@ function createRigbySkeleton(project) {
   for (const [name, pos] of Object.entries(project.joints)) {
     jointPositions[name] = workToRigbyPoint(pos);
   }
+  // Add chest joint at neck position (shoulders attach at chest/neck level)
+  if (jointPositions.neck && !jointPositions.chest) {
+    jointPositions.chest = [...jointPositions.neck];
+  }
   
   const boneIndex = new Map();
   sk.bones = [];
+  const worldRotations = new Map(); // Track world rotation of each bone
   
   // Create bones in hierarchy order
   for (const def of BONE_HIERARCHY) {
@@ -159,26 +172,52 @@ function createRigbySkeleton(project) {
     const parentPos = def.parent ? jointPositions[BONE_HIERARCHY.find(b => b.name === def.parent)?.joint] || [0, 0] : [0, 0];
     
     const setup = identityTransform();
+    let worldRotation = 0;
     
-    // For fixed bones (IK targets), use absolute world position
+    // For fixed bones (IK targets), setup is absolute world position
     if (def.fixed) {
       setup.x = jointPos[0];
       setup.y = jointPos[1];
+      setup.rotation = 0;
+      worldRotation = 0;
     } else {
-      setup.x = jointPos[0] - parentPos[0];
-      setup.y = jointPos[1] - parentPos[1];
-    }
-    
-    // Calculate bone length to next joint in chain
-    let length = 0;
-    for (const child of BONE_HIERARCHY) {
-      if (child.parent === def.name && jointPositions[child.joint]) {
-        const childPos = jointPositions[child.joint];
+      // Calculate setup vector in PARENT'S LOCAL SPACE
+      if (def.parent) {
+        const parentWorldRot = worldRotations.get(def.parent) || 0;
+        const cos = Math.cos(-parentWorldRot * Math.PI / 180);
+        const sin = Math.sin(-parentWorldRot * Math.PI / 180);
+        const dx = jointPos[0] - parentPos[0];
+        const dy = jointPos[1] - parentPos[1];
+        // Transform to parent's local space (rotate by -parentWorldRot)
+        setup.x = dx * cos - dy * sin;
+        setup.y = dx * sin + dy * cos;
+      } else {
+        // Root bone: setup is absolute position
+        setup.x = jointPos[0];
+        setup.y = jointPos[1];
+      }
+      
+      // Calculate bone orientation in PARENT'S LOCAL SPACE
+      if (def.name !== 'root' && def.childJoint && jointPositions[def.childJoint]) {
+        const childPos = jointPositions[def.childJoint];
         const dx = childPos[0] - jointPos[0];
         const dy = childPos[1] - jointPos[1];
-        length = Math.hypot(dx, dy);
-        break;
+        const worldAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+        
+        // Convert to parent's local space
+        const parentWorldRot = def.parent ? worldRotations.get(def.parent) : 0;
+        setup.rotation = wrapDegrees(worldAngle - parentWorldRot);
       }
+      worldRotation = (def.parent ? worldRotations.get(def.parent) : 0) + setup.rotation;
+    }
+    
+    // Calculate bone length to child joint
+    let length = def.length !== undefined ? def.length : 0;
+    if (length === 0 && def.childJoint && jointPositions[def.childJoint]) {
+      const childPos = jointPositions[def.childJoint];
+      const dx = childPos[0] - jointPos[0];
+      const dy = childPos[1] - jointPos[1];
+      length = Math.hypot(dx, dy);
     }
     
     const bone = makeBone(def.name, parentIndex, setup, length);
@@ -188,9 +227,18 @@ function createRigbySkeleton(project) {
     }
     boneIndex.set(def.name, sk.bones.length);
     sk.bones.push(bone);
+    worldRotations.set(def.name, worldRotation);
   }
   
   return { sk, jointPositions, boneIndex };
+}
+
+// Helper to normalize angle to [-180, 180]
+function wrapDegrees(angle) {
+  angle = angle % 360;
+  if (angle > 180) angle -= 360;
+  if (angle < -180) angle += 360;
+  return angle;
 }
 
 function createSlotsAndAttachments(sk, project, jointPositions, boneIndex, partImages) {
@@ -224,12 +272,14 @@ function createSlotsAndAttachments(sk, project, jointPositions, boneIndex, partI
     const centerWork = [bounds.cx, bounds.cy];
     const centerRigby = workToRigbyPoint(centerWork);
     
-    // Bone ORIGIN position in Rigby2D (parent joint, not child joint!)
+    // Bone origin in Rigby2D (where the bone starts - its parent joint)
     const boneDef = BONE_HIERARCHY.find(b => b.name === boneName);
     const parentJoint = boneDef?.parent ? BONE_HIERARCHY.find(b => b.name === boneDef.parent)?.joint : null;
     const boneOriginPos = parentJoint ? jointPositions[parentJoint] : [0, 0];
     
     // Attachment offset: center of piece relative to bone origin (parent joint)
+    // The bone's setup already positions it at jointPos relative to parent
+    // So the attachment offset should be from bone origin to piece center
     const offset = {
       x: centerRigby[0] - boneOriginPos[0],
       y: centerRigby[1] - boneOriginPos[1],
@@ -238,7 +288,9 @@ function createSlotsAndAttachments(sk, project, jointPositions, boneIndex, partI
       scaleY: 1,
     };
     
-    const attachment = makeAttachment(part.id, part.id, offset, bounds.width, bounds.height);
+    // Use full canvas size for region attachments (1024x1536)
+    // The part images are full canvas with transparency
+    const attachment = makeAttachment(part.id, part.id, offset, WORK_CANVAS_WIDTH, WORK_CANVAS_HEIGHT);
     attachment.type = 'region';
     
     const slot = makeSlot(part.id, boneIdx, attachment);
@@ -246,7 +298,8 @@ function createSlotsAndAttachments(sk, project, jointPositions, boneIndex, partI
     slot.color = [1, 1, 1, 1];
     
     sk.slots.push(slot);
-    sk.images.push({ name: part.id, path: `images/${part.id}.png`, width: Math.round(bounds.width), height: Math.round(bounds.height) });
+    // Store image info with full canvas dimensions
+    sk.images.push({ name: part.id, path: `images/${part.id}.png`, width: WORK_CANVAS_WIDTH, height: WORK_CANVAS_HEIGHT });
   }
 }
 
@@ -321,7 +374,7 @@ function createScene(sk, project, jointPositions, boneIndex) {
       flip: false,
       skin: '',
       clips: {
-        'barra_fixa': [{ animation: 'idle' }] // Map main animation to bar's idle
+        'barra_fixa': [{ animation: 'barra_fixa' }] // Map main animation to bar's counter-animation
       }
     }],
     depth: {
@@ -355,16 +408,12 @@ function createAnimations(sk, project) {
   // Convert Work elevation keyframes to root bone translate Y keyframes (DELTA from setup)
   // Work rise 0 = Rigby2D setup y = -22
   // Work rise 330 = Rigby2D setup y + 330 = 308
-  // But the full 330 rise is physically impossible for the arm lengths (IK folding).
-  // Work system limits the actual rise based on IK error (peak error <= 0.01).
-  // Max rise without severe arm folding: target distance >= upper arm length (180).
-  // At rise R: shoulder_y = 332+R, target_y=693, dx=74.
-  // sqrt(74² + (361-R)²) >= 180 -> R <= 196.
-  // Empirically, R=190 gives acceptable results with minor folding at peak.
-  const maxFeasibleRise = 190;
+  // The Work system limits the actual rise based on IK error (peak error <= 0.01).
+  // The Rigby2D IK solver with shoulder limits will naturally constrain the motion.
+  // Use the full keyframes from the Work project.
   const keyframes = project.keys.map(k => ({
     time: k.t,
-    value: Math.min(k.v, 190), // Cap rise at feasible maximum
+    value: k.v, // Work rise IS the delta from setup
   }));
   
   const anim = {
@@ -515,9 +564,10 @@ async function saveAsRigby(sk, images, partImages, outputPath, correctionAssets 
 }
 
 async function createBarRigby(images, outputPath) {
-  // Create a minimal .rigby for the bar (static image)
+  // Create a minimal .rigby for the bar (static image with counter-animation)
   const { Skeleton, makeBone, makeSlot, makeAttachment, defaultSettings } = await import('../../core/model.js');
   const { Animation } = await import('../../core/animation.js');
+  const { LINEAR } = await import('../../core/curve.js');
   
   const sk = new Skeleton();
   sk.name = 'barra';
@@ -535,7 +585,7 @@ async function createBarRigby(images, outputPath) {
   const barImg = images.get('object');
   if (barImg) {
     // Assume bar image is full canvas 1024x1536
-    const attachment = makeAttachment('barra', 'barra', { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }, 1024, 1536);
+    const attachment = makeAttachment('barra', 'barra', { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }, WORK_CANVAS_WIDTH, WORK_CANVAS_HEIGHT);
     attachment.type = 'region';
     
     const slot = makeSlot('barra', 0, attachment);
@@ -543,12 +593,44 @@ async function createBarRigby(images, outputPath) {
     slot.color = [1, 1, 1, 1];
     
     sk.slots.push(slot);
-    sk.images.push({ name: 'barra', path: 'images/barra.png', width: 1024, height: 1536 });
+    sk.images.push({ name: 'barra', path: 'images/barra.png', width: WORK_CANVAS_WIDTH, height: WORK_CANVAS_HEIGHT });
   }
   
-  // Add a dummy animation so actor loading doesn't fail
-  const dummyAnim = new Animation('idle', 1);
-  sk.animations.push(dummyAnim);
+  // Add counter-animation to cancel root movement (bar stays fixed in world space)
+  // Main root rises from y=-22 to y=308 (delta +330) over 5 seconds
+  // Bar must move down by 330 to stay fixed in world space
+  const barAnim = new Animation('barra_fixa', 5);
+  barAnim.bones = [{
+    bone: 0, // root
+    translate: [
+      { time: 0, value: [0, 0] },
+      { time: 5, value: [0, -330] }
+    ],
+    rotate: [],
+    scale: [],
+    shear: [],
+    translateX: [],
+    translateY: [
+      { time: 0, value: 0 },
+      { time: 5, value: -330 }
+    ],
+    scaleX: [],
+    scaleY: [],
+    shearX: [],
+    shearY: [],
+    inherit: [],
+  }];
+  barAnim.slots = [];
+  barAnim.deform = [];
+  barAnim.drawOrder = [];
+  barAnim.events = [];
+  barAnim.ik = [];
+  barAnim.extra = {};
+  
+  // Also keep a dummy idle animation for compatibility
+  const idleAnim = new Animation('idle', 1);
+  sk.animations.push(idleAnim);
+  sk.animations.push(barAnim);
   
   const projectJson = sk.toObject();
   
